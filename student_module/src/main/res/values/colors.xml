@@ -18,6 +18,7 @@
     <color name="onSecondary">#FFFFFF</color>
     <color name="onBackground">#163269</color>
     <color name="onSurface">#163269</color>
+    <color name="white">#FFFFFF</color>
 
     <!-- Additional colors from design -->
     <color name="light_blue_info">#E3F2FD</color>

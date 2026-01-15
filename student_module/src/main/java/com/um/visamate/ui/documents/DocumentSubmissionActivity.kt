@@ -1,6 +1,5 @@
 package com.um.visamate.ui.documents
 
-import android.app.Activity
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -8,19 +7,19 @@ import android.widget.ImageView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.lifecycleScope
 import com.google.android.material.button.MaterialButton
 import com.um.visamate.R
 import com.um.visamate.data.models.Submission
 import com.um.visamate.data.models.SubmissionStatus
 import com.um.visamate.data.models.User
 import com.um.visamate.utils.FakeDatabase
-import com.um.visamate.utils.MockNetworkClient
 import com.um.visamate.utils.RoleManager
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
-// DocumentSubmissionActivity implements F.R.2.x and enforces Final Submission Lock - Updated for new design
 class DocumentSubmissionActivity : AppCompatActivity() {
     private lateinit var btnUploadPassport: MaterialButton
     private lateinit var btnReplacePassport: MaterialButton
@@ -29,134 +28,130 @@ class DocumentSubmissionActivity : AppCompatActivity() {
     private lateinit var btnBack: ImageView
 
     private var facultyDocumentsRequested = false
-
     private var user: User? = null
 
-    // ActivityResultLauncher for F.R. 2.3
+    // File picker launcher logic remains same
     private val filePickerLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == RESULT_OK) {
-            val data: Intent? = result.data
-            val selectedFileUri: Uri? = data?.data
+            val selectedFileUri: Uri? = result.data?.data
             if (selectedFileUri != null) {
-                // Handle the selected file URI (e.g., display file name, upload)
                 Toast.makeText(this, "File selected: ${selectedFileUri.path}", Toast.LENGTH_LONG).show()
-                // Here you would typically start the upload process for the selected file
             } else {
                 Toast.makeText(this, getString(R.string.msg_no_file_selected), Toast.LENGTH_SHORT).show()
             }
         }
     }
 
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.activity_document_submission)
+        setContentView(R.layout.fragment_document_submission)
 
-        // Initialize views
+        // 1. Initialize Views
         btnUploadPassport = findViewById(R.id.btnUploadPassport)
         btnReplacePassport = findViewById(R.id.btnReplacePassport)
         btnUploadFinancial = findViewById(R.id.btnUploadFinancial)
         btnRequestFaculty = findViewById(R.id.btnRequestFaculty)
         btnBack = findViewById(R.id.btnBack)
 
-
+        // 2. Fetch User Data from intent
         val userId = intent.getStringExtra("userId")
-        if (userId != null) user = FakeDatabase.findUserById(userId)
+        user = userId?.let { FakeDatabase.findUserById(it) } ?: FakeDatabase.currentUser
 
-        // RBAC: only applicants can submit
+        // 3. Permission Check
         if (!RoleManager.canSubmit(user)) {
-            btnUploadPassport.isEnabled = false
-            btnUploadFinancial.isEnabled = false
-            btnRequestFaculty.isEnabled = false
-            Toast.makeText(this, getString(R.string.msg_final_locked), Toast.LENGTH_LONG).show()
-            updateUiForChecklist() // F.R. 2.2
-            return
+            disableAllButtons()
+            Toast.makeText(this, "Access Denied: Finalized or Unauthorized", Toast.LENGTH_LONG).show()
         }
 
         setupClickListeners()
-        updateUiForChecklist() // F.R. 2.2
+        updateUiForChecklist()
     }
 
     private fun setupClickListeners() {
-        btnBack.setOnClickListener {
-            finish()
-        }
+        btnBack.setOnClickListener { finish() }
 
-        // F.R. 2.3: Student File Upload
-        btnUploadPassport.setOnClickListener {
-            openFilePicker()
-        }
+        btnUploadPassport.setOnClickListener { openFilePicker() }
 
         btnReplacePassport.setOnClickListener {
             Toast.makeText(this, "Replace scanned passport", Toast.LENGTH_SHORT).show()
-            // Mock replace
         }
 
         btnUploadFinancial.setOnClickListener {
-            // Create a draft submission and upload via MockNetworkClient
-            CoroutineScope(Dispatchers.IO).launch {
+            val currentUser = user ?: return@setOnClickListener
+
+            btnUploadFinancial.isEnabled = false
+            btnUploadFinancial.text = "Uploading..."
+
+            // Use lifecycleScope for better coroutine management in Activity
+            lifecycleScope.launch(Dispatchers.IO) {
                 try {
-                    val submission = Submission(userId = user!!.id)
+                    // Create new submission record
+                    val submission = Submission(
+                        id = "SUB-${System.currentTimeMillis()}",
+                        userId = currentUser.id,
+                        status = SubmissionStatus.PENDING
+                    )
+
+                    // CALL SUSPEND FUNCTION: This fixes the unresolved reference error
                     FakeDatabase.createSubmission(submission)
-                    val success = MockNetworkClient.uploadSubmission(submission, minDurationMs = 500L)
-                    if (success) {
-                        submission.status = SubmissionStatus.SUBMITTED
-                        submission.submittedAt = System.currentTimeMillis()
-                        FakeDatabase.updateSubmission(submission)
-                        runOnUiThread {
-                            Toast.makeText(this@DocumentSubmissionActivity, getString(R.string.msg_upload_success), Toast.LENGTH_SHORT).show()
-                            updateUiForChecklist() // F.R. 2.2
-                        }
-                    } else {
-                        runOnUiThread {
-                            Toast.makeText(this@DocumentSubmissionActivity, getString(R.string.msg_upload_failure), Toast.LENGTH_SHORT).show()
-                        }
+
+                    // Simulate upload delay
+                    kotlinx.coroutines.delay(1000)
+
+                    // Mock update logic: In a real app, this changes status based on server response
+                    val updatedSubmission = submission.copy(
+                        status = SubmissionStatus.PENDING,
+                        submittedAt = System.currentTimeMillis()
+                    )
+                    FakeDatabase.updateSubmission(updatedSubmission)
+
+                    // Return to main thread to update UI
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(this@DocumentSubmissionActivity, "Upload Success!", Toast.LENGTH_SHORT).show()
+                        btnUploadFinancial.text = "Uploaded"
+                        btnUploadFinancial.backgroundTintList = ContextCompat.getColorStateList(this@DocumentSubmissionActivity, R.color.green_success)
+                        updateUiForChecklist()
                     }
                 } catch (e: Exception) {
-                    runOnUiThread { Toast.makeText(this@DocumentSubmissionActivity, e.message, Toast.LENGTH_SHORT).show() }
+                    withContext(Dispatchers.Main) {
+                        btnUploadFinancial.isEnabled = true
+                        btnUploadFinancial.text = "Upload"
+                        Toast.makeText(this@DocumentSubmissionActivity, "Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                    }
                 }
             }
         }
 
-        // F.R. 2.1: Faculty Document Request
         btnRequestFaculty.setOnClickListener {
-            // Mock faculty document request
             facultyDocumentsRequested = true
-            updateUiForChecklist() // Update UI to reflect the request
+            updateUiForChecklist()
             Toast.makeText(this, "Faculty documents requested", Toast.LENGTH_SHORT).show()
-            // In a real app, this would trigger a backend call to notify the faculty officer.
         }
     }
 
-    /**
-     * F.R. 2.3: Opens the device's file picker to select any type of file.
-     */
     private fun openFilePicker() {
-        val intent = Intent(Intent.ACTION_GET_CONTENT)
-        intent.type = "*/*" // Allows any file type to be selected
-        intent.addCategory(Intent.CATEGORY_OPENABLE)
+        val intent = Intent(Intent.ACTION_GET_CONTENT).apply {
+            type = "*/*"
+            addCategory(Intent.CATEGORY_OPENABLE)
+        }
         try {
-            filePickerLauncher.launch(Intent.createChooser(intent, "Select a file to upload"))
-        } catch (_: android.content.ActivityNotFoundException) {
+            filePickerLauncher.launch(Intent.createChooser(intent, "Select a file"))
+        } catch (e: Exception) {
             Toast.makeText(this, "Please install a File Manager.", Toast.LENGTH_SHORT).show()
         }
     }
 
+    private fun disableAllButtons() {
+        btnUploadPassport.isEnabled = false
+        btnUploadFinancial.isEnabled = false
+        btnRequestFaculty.isEnabled = false
+    }
 
-    /**
-     * F.R. 2.2: Updates the UI based on the current document status.
-     * This function serves as a placeholder for a more dynamic checklist implementation.
-     */
     private fun updateUiForChecklist() {
-        // Update faculty document request status
         if (facultyDocumentsRequested) {
             btnRequestFaculty.isEnabled = false
-        } else {
-            btnRequestFaculty.isEnabled = RoleManager.canSubmit(user)
+            btnRequestFaculty.text = "Requested"
+            btnRequestFaculty.backgroundTintList = ContextCompat.getColorStateList(this, R.color.secondary_steel_blue)
         }
-
-        // Here, you would add more logic to check the status of each uploaded document
-        // from your data source (e.g., FakeDatabase) and update the UI accordingly.
-        // For example, showing a green checkmark or changing button text.
     }
 }
