@@ -10,12 +10,6 @@
         <option name="modules">
           <set>
             <option value="$PROJECT_DIR$" />
-            <option value="$PROJECT_DIR$/UMVISAMATE" />
-            <option value="$PROJECT_DIR$/UMVISAMATE2_M4" />
-            <option value="$PROJECT_DIR$/UMVISAMATEM2-Faculty" />
-            <option value="$PROJECT_DIR$/UMVISAMATE_M3" />
-            <option value="$PROJECT_DIR$/UMVisaMate1" />
-            <option value="$PROJECT_DIR$/app" />
             <option value="$PROJECT_DIR$/student_module" />
           </set>
         </option>
